@@ -9,6 +9,9 @@ from PIL import Image
 from tensorflow.keras.models import load_model
 from utils import get_class_labels, detect_model_type
 
+# Default data directory
+DEFAULT_DATA_DIR = './Dataset/data' if os.path.exists('./Dataset/data') else './data'
+
 
 def preprocess_image(image, target_size=(224, 224)):
     """
@@ -98,7 +101,7 @@ def main():
         st.sidebar.error("Models directory not found: ./models/")
         st.stop()
     
-    model_files = [f for f in os.listdir(models_dir) if f.endswith('.h5')]
+    model_files = [f for f in os.listdir(models_dir) if f.endswith(('.keras', '.h5'))]
     
     if not model_files:
         st.sidebar.warning("No model files found in ./models/")
@@ -112,13 +115,18 @@ def main():
         help="Choose a trained model to use for prediction"
     )
     
+    # Validate selected_model is not None (should not happen, but defensive check)
+    if selected_model is None:
+        st.error("Error: No model selected. Please select a model from the sidebar.")
+        st.stop()
+    
     model_path = os.path.join(models_dir, selected_model)
     
     # Get class labels
-    class_labels = get_class_labels(data_dir='./data')
+    class_labels = get_class_labels(data_dir=DEFAULT_DATA_DIR)
     
     if not class_labels:
-        st.error("No class labels found. Please ensure ./data/ directory exists with class subfolders.")
+        st.error(f"No class labels found. Please ensure {DEFAULT_DATA_DIR} directory exists with class subfolders.")
         st.stop()
     
     # Display model info

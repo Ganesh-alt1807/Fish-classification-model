@@ -11,22 +11,40 @@ from tensorflow.keras.layers import GlobalAveragePooling2D, Dense, Dropout
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 
+# Default data directory - use Dataset/data if data doesn't exist
+DEFAULT_DATA_DIR = './Dataset/data' if os.path.exists('./Dataset/data') else './data'
 
-def get_class_labels(data_dir='./data'):
+
+def get_class_labels(data_dir=None):
     """
     Get class labels from dataset directory structure.
     
+    Handles both split folders and flat structure.
+    
     Args:
-        data_dir (str): Path to dataset directory containing class subfolders
+        data_dir (str): Path to dataset directory.
+                       Default: Uses './Dataset/data' if it exists, otherwise './data'
     
     Returns:
         list: Sorted list of class label names
     """
+    if data_dir is None:
+        data_dir = DEFAULT_DATA_DIR
+    
     if not os.path.exists(data_dir):
         return []
     
-    class_dirs = [d for d in os.listdir(data_dir) 
-                  if os.path.isdir(os.path.join(data_dir, d))]
+    # Check if using split folder structure
+    train_dir = os.path.join(data_dir, 'train')
+    if os.path.exists(train_dir):
+        # Use train folder for class labels
+        class_dirs = [d for d in os.listdir(train_dir) 
+                      if os.path.isdir(os.path.join(train_dir, d))]
+    else:
+        # Use root data directory
+        class_dirs = [d for d in os.listdir(data_dir) 
+                      if os.path.isdir(os.path.join(data_dir, d)) and d not in ['train', 'val', 'test']]
+    
     return sorted(class_dirs)
 
 
@@ -68,16 +86,21 @@ def detect_model_type(model_path):
     return model_name, target_size
 
 
-def load_dataset(data_dir='./data', target_size=(224, 224), batch_size=32, validation_split=0.2):
+def load_dataset(data_dir=None, target_size=(224, 224), batch_size=32, validation_split=None, use_split_folders=True):
     """
-    Load dataset using ImageDataGenerator with automatic train/validation split.
+    Load dataset using ImageDataGenerator.
+    
+    Handles two dataset structures:
+    1. Split folders: data/train/, data/val/, data/test/ (each with class subfolders)
+    2. Flat structure: data/ with class subfolders and automatic split
     
     Args:
-        data_dir (str): Path to the dataset directory containing class subfolders.
-                       Default: './data'
+        data_dir (str): Path to the dataset directory.
+                       Default: Uses './Dataset/data' if it exists, otherwise './data'
         target_size (tuple): Target image size (height, width). Default: (224, 224)
         batch_size (int): Batch size for data generators. Default: 32
-        validation_split (float): Fraction of data to use for validation. Default: 0.2
+        validation_split (float): Fraction of data to use for validation. Only used if use_split_folders=False. Default: 0.2
+        use_split_folders (bool): If True, expect train/val/test folders. If False, use flat structure with split. Default: True
     
     Returns:
         tuple: (train_generator, validation_generator, num_classes)
@@ -85,60 +108,131 @@ def load_dataset(data_dir='./data', target_size=(224, 224), batch_size=32, valid
             - validation_generator: ImageDataGenerator for validation data
             - num_classes (int): Number of fish species classes
     """
-    # Count number of classes by counting subdirectories in data_dir
-    class_dirs = [d for d in os.listdir(data_dir) 
-                  if os.path.isdir(os.path.join(data_dir, d))]
-    num_classes = len(class_dirs)
+    # Use default data directory if not specified
+    if data_dir is None:
+        data_dir = DEFAULT_DATA_DIR
     
-    print(f"Found {num_classes} classes in dataset")
-    print(f"Classes: {', '.join(sorted(class_dirs))}")
+    if validation_split is None:
+        validation_split = 0.2
     
-    # Create ImageDataGenerator with data augmentation for training
-    train_datagen = ImageDataGenerator(
-        rescale=1./255,  # Normalize pixel values to [0, 1]
-        validation_split=validation_split,
-        rotation_range=20,
-        width_shift_range=0.2,
-        height_shift_range=0.2,
-        horizontal_flip=True,
-        zoom_range=0.2,
-        fill_mode='nearest'
-    )
+    # Check if dataset has split folders (train/val/test) or flat structure
+    has_split_folders = (os.path.exists(os.path.join(data_dir, 'train')) and 
+                         os.path.exists(os.path.join(data_dir, 'val')))
     
-    # Create ImageDataGenerator for validation (only rescaling, no augmentation)
-    val_datagen = ImageDataGenerator(
-        rescale=1./255,
-        validation_split=validation_split
-    )
+    if has_split_folders and use_split_folders:
+        print("Using split folder structure (train/val/test)...")
+        # Use split folders
+        train_dir = os.path.join(data_dir, 'train')
+        val_dir = os.path.join(data_dir, 'val')
+        
+        # Count number of classes from train folder
+        class_dirs = [d for d in os.listdir(train_dir) 
+                      if os.path.isdir(os.path.join(train_dir, d))]
+        num_classes = len(class_dirs)
+        
+        print(f"Found {num_classes} classes in dataset")
+        print(f"Classes: {', '.join(sorted(class_dirs))}")
+        
+        # Create ImageDataGenerator for training (with augmentation)
+        train_datagen = ImageDataGenerator(
+            rescale=1./255,
+            rotation_range=20,
+            width_shift_range=0.2,
+            height_shift_range=0.2,
+            horizontal_flip=True,
+            zoom_range=0.2,
+            fill_mode='nearest'
+        )
+        
+        # Create ImageDataGenerator for validation (only rescaling)
+        val_datagen = ImageDataGenerator(rescale=1./255)
+        
+        # Create training generator from train folder
+        train_gen = train_datagen.flow_from_directory(
+            train_dir,
+            target_size=target_size,
+            batch_size=batch_size,
+            class_mode='categorical',
+            shuffle=True,
+            seed=42
+        )
+        
+        # Create validation generator from val folder
+        val_gen = val_datagen.flow_from_directory(
+            val_dir,
+            target_size=target_size,
+            batch_size=batch_size,
+            class_mode='categorical',
+            shuffle=False,
+            seed=42
+        )
+        
+        print(f"\nTraining samples: {train_gen.samples}")
+        print(f"Validation samples: {val_gen.samples}")
+        print(f"Batch size: {batch_size}")
+        print(f"Image size: {target_size}")
+        
+        return train_gen, val_gen, num_classes
     
-    # Create training generator
-    train_gen = train_datagen.flow_from_directory(
-        data_dir,
-        target_size=target_size,
-        batch_size=batch_size,
-        class_mode='categorical',
-        subset='training',
-        shuffle=True,
-        seed=42
-    )
-    
-    # Create validation generator
-    val_gen = val_datagen.flow_from_directory(
-        data_dir,
-        target_size=target_size,
-        batch_size=batch_size,
-        class_mode='categorical',
-        subset='validation',
-        shuffle=False,
-        seed=42
-    )
-    
-    print(f"\nTraining samples: {train_gen.samples}")
-    print(f"Validation samples: {val_gen.samples}")
-    print(f"Batch size: {batch_size}")
-    print(f"Image size: {target_size}")
-    
-    return train_gen, val_gen, num_classes
+    else:
+        print("Using flat structure with validation split...")
+        # Use flat structure with validation split
+        if not os.path.exists(data_dir):
+            raise FileNotFoundError(f"Dataset directory not found: {data_dir}")
+        
+        class_dirs = [d for d in os.listdir(data_dir) 
+                      if os.path.isdir(os.path.join(data_dir, d)) and d not in ['train', 'val', 'test']]
+        num_classes = len(class_dirs)
+        
+        print(f"Found {num_classes} classes in dataset")
+        print(f"Classes: {', '.join(sorted(class_dirs))}")
+        
+        # Create ImageDataGenerator with data augmentation for training
+        train_datagen = ImageDataGenerator(
+            rescale=1./255,
+            validation_split=validation_split,
+            rotation_range=20,
+            width_shift_range=0.2,
+            height_shift_range=0.2,
+            horizontal_flip=True,
+            zoom_range=0.2,
+            fill_mode='nearest'
+        )
+        
+        # Create ImageDataGenerator for validation (only rescaling, no augmentation)
+        val_datagen = ImageDataGenerator(
+            rescale=1./255,
+            validation_split=validation_split
+        )
+        
+        # Create training generator
+        train_gen = train_datagen.flow_from_directory(
+            data_dir,
+            target_size=target_size,
+            batch_size=batch_size,
+            class_mode='categorical',
+            subset='training',
+            shuffle=True,
+            seed=42
+        )
+        
+        # Create validation generator
+        val_gen = val_datagen.flow_from_directory(
+            data_dir,
+            target_size=target_size,
+            batch_size=batch_size,
+            class_mode='categorical',
+            subset='validation',
+            shuffle=False,
+            seed=42
+        )
+        
+        print(f"\nTraining samples: {train_gen.samples}")
+        print(f"Validation samples: {val_gen.samples}")
+        print(f"Batch size: {batch_size}")
+        print(f"Image size: {target_size}")
+        
+        return train_gen, val_gen, num_classes
 
 
 def build_transfer_model(base_model_name, input_shape, num_classes):

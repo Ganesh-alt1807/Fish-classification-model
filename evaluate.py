@@ -14,18 +14,23 @@ from sklearn.metrics import (
 from tensorflow.keras.models import load_model
 from utils import load_dataset, detect_model_type
 
+# Default data directory
+DEFAULT_DATA_DIR = './Dataset/data' if os.path.exists('./Dataset/data') else './data'
 
-def evaluate_model(model_path='./models/cnn_best.h5', data_dir='./data', history=None):
+
+def evaluate_model(model_path='./models/cnn_best.keras', data_dir=None, history=None):
     """
     Evaluate trained model and generate visualizations.
     Supports both CNN and transfer learning models.
     
     Args:
         model_path (str): Path to saved model file
-                          Examples: './models/cnn_best.h5', './models/vgg16_best.h5'
-        data_dir (str): Path to dataset directory
+                          Examples: './models/cnn_best.keras', './models/vgg16_best.keras'
+        data_dir (str): Path to dataset directory. Default: DEFAULT_DATA_DIR
         history: Training history object (optional, for plotting training curves)
     """
+    if data_dir is None:
+        data_dir = DEFAULT_DATA_DIR
     print("=" * 60)
     print("Model Evaluation - Multiclass Fish Image Classification")
     print("=" * 60)
@@ -246,7 +251,7 @@ def main():
     # List available models
     models_dir = './models'
     if os.path.exists(models_dir):
-        model_files = [f for f in os.listdir(models_dir) if f.endswith('.h5')]
+        model_files = [f for f in os.listdir(models_dir) if f.endswith(('.keras', '.h5'))]
         if model_files:
             print("\nAvailable models:")
             for i, model_file in enumerate(model_files, 1):
@@ -259,7 +264,7 @@ def main():
         return None
     
     print("\nOptions:")
-    print("  1. Enter model filename (e.g., cnn_best.h5 or vgg16_best.h5)")
+    print("  1. Enter model filename (e.g., cnn_best.keras or vgg16_best.keras)")
     print("  2. Enter full path to model file")
     
     user_input = input("\nEnter model path or filename: ").strip()
